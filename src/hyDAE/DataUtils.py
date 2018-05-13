@@ -1,8 +1,8 @@
 import numpy as np
 from sklearn import preprocessing
 
-def data_generator_false(nb_batch,batch_size=None,shuffle = True):
-    R = np.array([[0,0.9,0.9,0.7,0.6,0.7,0.9,0.6,0.2,0.2],[0.6,0.4,0.9,0.7,0.7,0.2,0,0.4,0.6,0.7],[0.4,0.5,0.5,0.9,0.7,0.8,0.9,0.7,0.8,0],[0.1,0.5,0.2,0.8,0.9,0,0.6,0.8,0.3,0.3]])
+def data_generator_false(Rfile,nb_batch,batch_size=None,shuffle = True):
+    R = np.array([[0,0.9,0.9,0.7,0.8,0.7,0,0,0.2,0.2],[0.6,0.4,0.9,0.7,0.7,0.2,0,0.4,0.6,0.7],[0.4,0.5,0.5,0.9,0.7,0.8,0.9,0.7,0.8,0],[0.1,0.5,0.2,0.8,0.9,0,0.6,0.8,0.3,0.3]])
     U = np.array([[0,1,0,1,0],[1,0,1,0,0],[0,1,0,1,0],[1,0,0,0,1]])
     I = np.array([[1,0,1,1],
                   [0,0,1,0],
@@ -43,10 +43,10 @@ def data_generator_false(nb_batch,batch_size=None,shuffle = True):
             batch += 1
             yield batch_U,batch_I,batch_R
             
-def data_generator(nb_batch,batch_size=None,shuffle = True):
+def data_generator(Rfile,nb_batch,batch_size=None,shuffle = True):
     U = np.load('./Data/user.npy',mmap_mode='r')
     I = np.load('./Data/item.npy',mmap_mode='r')
-    R = np.load('./Data/u1_train.npy',mmap_mode='r')
+    R = np.load(Rfile,mmap_mode='r')
     
     if shuffle:
         ru = np.random.permutation(U.shape[0])      # 只在第一次读的时候做shuffle
@@ -92,7 +92,7 @@ def createRatingMatrix(filename, Rshape):
         line = f.readline()
     f.close()
 #     print(ratings_matrix[0])
-#     ratings_matrix = ratings_matrix/5.0
+    ratings_matrix = ratings_matrix/5.0
 #     print(ratings_matrix.shape)
 #     print(ratings_matrix[0])
     return ratings_matrix
@@ -147,10 +147,8 @@ def createUserMatrix(filename, Ushape, occupation_list):
             break
         line = f.readline()
     f.close()
-#     print(user_matrix[0])
     user_matrix = user_matrix[:,1:] #去除id这一列
     user_matrix[:,0] = preprocessing.maxabs_scale(user_matrix[:,0])   # 归一化处理age
-#     print(user_matrix[0])
     return user_matrix
 
 def createBaseInfo(filename, occupation_file):
@@ -167,6 +165,42 @@ def createBaseInfo(filename, occupation_file):
     f.close()
     return num_u, num_i, oc_list
 
+def calculate_recall(Ratings, Rpred, K=(2,4,6,8)):
+    sorted_index = np.argsort(Rpred)
+#     print("sorted_index: ", sorted_index)
+    R = np.copy(Ratings)
+#     print(R)
+    R[R<0.8] = 0 # 判断是否喜欢的标准,注意顺序
+    R[R>=0.8] = 1
+#     print(R)
+    sum_user_likes = np.sum(R, axis=1)
+    recalls = np.zeros(shape=(R.shape[0], len(K)), dtype=float)
+    for i in range(R.shape[0]):
+#     print("sorted_index[0]: ", sorted_index[0])
+#     print("R[0][sorted_index[0]]: ", R[0][sorted_index[0]])
+        user_ratings = R[i][sorted_index[i]][::-1] # 从高到低排序
+#         print("user_ratings: ", user_ratings)
+        num_likes = sum_user_likes[i]
+#         print("num_likes: ", num_likes)
+        for inx, k in enumerate(K):
+            top_k_ratings = user_ratings[:k]
+#             print("top_k_ratings: ", top_k_ratings)
+            num_ratings_top_k = top_k_ratings[top_k_ratings == 1].size
+            if num_likes > 0:
+                recalls[0, inx] = num_ratings_top_k / num_likes
+    avg_recalls = np.sum(recalls, axis=0)            
+#     avg_recalls = np.average(recalls, axis=0) # shape(1,3)
+    return avg_recalls 
+ 
+def recommend_result(R, Rpred, K):
+    mask = np.ones(R.shape) - np.sign(np.abs(R))
+    temp = -Rpred * mask
+    sorted_idx = np.argsort(temp)
+    re = sorted_idx[:,:K] # 每个user对应的top歌曲id
+    recommend = -np.sort(temp) # 推荐歌曲的预测分数
+    return recommend[:,:K], re
+    
+    
 if __name__ == '__main__':
     np.set_printoptions(threshold=np.inf) 
     path = '../../../SDAE-recommendation-master/SDAE-recommendation-master/data/ml-100k/'

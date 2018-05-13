@@ -47,6 +47,7 @@ class MLPModel(object):
         self.noise_rate = noise_rate
         self.regularizer = tf.contrib.layers.l2_regularizer
 #         tf.nn.l2_loss
+#         tf.contrib.layers.l2_regularizer
         
     def encoder(self, inputs, units, noise_rate, layerlambda, name="encoder"):
         input_size = int(inputs.shape[1]) # 输入的维度
@@ -120,12 +121,9 @@ class MLPModel(object):
         for loss in reg_losses:
             tf.add_to_collection(loss_name, loss)
         # ------loss------
-        self.reg_loss_u = tf.get_collection(loss_name)
+        self.reg_loss_u = tf.add_n(tf.get_collection(loss_name))
         self.pred_loss_u = mse_by_part(self.U_pred, self.u_x, self.Rshape[1], self.alpha)
-        tf.add_to_collection(loss_name,self.pred_loss_u)
-        
-        self.loss_u = tf.add_n(tf.get_collection(loss_name)) # U的总误差
-#         self.loss_reg = list(self.reg_loss_u) # 正则化误差，list
+        self.loss_u = self.reg_loss_u+self.pred_loss_u
         
         # 物品网络
         input_size = self.Rshape[0] + self.Ishape[1]
@@ -162,32 +160,30 @@ class MLPModel(object):
         for loss in reg_losses:
             tf.add_to_collection(loss_name, loss)
         # ------loss------
-        self.reg_loss_i = tf.get_collection(loss_name)
+        self.reg_loss_i = tf.add_n(tf.get_collection(loss_name))
         self.pred_loss_i = mse_by_part(self.I_pred, self.i_x, self.Rshape[0], self.alpha)
-        tf.add_to_collection(loss_name,self.pred_loss_i)
-        self.loss_i = tf.add_n(tf.get_collection(loss_name)) # I的总误差
-#         self.loss_reg.extend(self.reg_loss_i) # 总的正则化误差
+        self.loss_i = self.reg_loss_i+self.pred_loss_i  # I的总误差
         
         # 计算模型总误差
         self.R_pred = tf.matmul(self.U, tf.transpose(self.V))
         self.pred_loss = mse_mask(self.R, self.R_pred ) #矩阵的误差
         reg_loss_u_and_i = tf.reduce_mean(tf.norm(self.U,axis=1))+tf.reduce_mean(tf.norm(self.V,axis=1))
-#         self.loss_reg.append(reg_loss_u_and_i)
         self.loss = self.pred_loss + self.reg_lambda*reg_loss_u_and_i+\
                     self.beta * self.loss_u + self.delta * self.loss_i
         self.rmse = rmse_mask(self.R, self.R_pred)
 
 
     def train(self, load_data_func):
-#         self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
-        self.optimizer = tf.train.RMSPropOptimizer(self.learning_rate).minimize(self.loss)
+        self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
+#         self.optimizer = tf.train.RMSPropOptimizer(self.learning_rate).minimize(self.loss)
         self.sess.run(tf.global_variables_initializer())
         for epoch in range(self.n_epoch):
             if self.batch_size is None:
                 n_batch = 1
             else:
                 n_batch = self.Rshape[0]//self.batch_size
-            data_generator = load_data_func(n_batch, batch_size=self.batch_size, shuffle=False)
+            Rfile = "./Data/rating.npy"
+            data_generator = load_data_func(Rfile,n_batch, batch_size=self.batch_size, shuffle=False)
             for _ in range(n_batch):
                 batch_u, batch_i, batch_R = next(data_generator)
                 feed_data={self.u_x:batch_u, self.i_x:batch_i, self.R: batch_R}
@@ -195,7 +191,7 @@ class MLPModel(object):
                                                     feed_dict=feed_data)
             if (epoch +1)%self.print_step == 0:
                 print("epoch ",(epoch+1)," train loss: ", loss,"rmse: ",rmse)
-        data_generator = load_data_func(0, batch_size=None, shuffle=False)
+        data_generator = load_data_func(Rfile,0, batch_size=None, shuffle=False)
         batch_u, batch_i, batch_R = next(data_generator)
         feed_data={self.u_x:batch_u, self.i_x:batch_i, self.R: batch_R}
         return self.sess.run([self.U, self.V], feed_dict=feed_data)
